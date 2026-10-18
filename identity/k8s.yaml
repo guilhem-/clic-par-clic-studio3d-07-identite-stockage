@@ -1,0 +1,102 @@
+# The organization's identity provider (module 7): Keycloak 26.8.0, "example-org" realm imported at
+# startup ("realm" secret: realm.json, with passwords and client secrets filled in by deploy.sh).
+# "start-dev" mode (H2 database inside the container): recording workstation only; in production, "start"
+# mode, PostgreSQL, several copies, or the organization's existing provider.
+#   kubectl apply -f k8s.yaml   (after the keycloak-admin and realm secrets: see deploy.sh)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: identity
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: identity
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      volumes:
+        - name: realm
+          secret: { secretName: realm }
+      containers:
+        - name: keycloak
+          # quay.io/keycloak/keycloak:26.8.0, pinned by digest
+          image: quay.io/keycloak/keycloak:26.8.0@sha256:27b3230fbabb8c9ff3c66c864cf09dcd8a41aca82e5100679d109ef0eeb05741
+          imagePullPolicy: IfNotPresent
+          args: ["start-dev", "--import-realm"]
+          env:
+            # One issuer, two addresses: tokens are always signed with the public address…
+            - { name: KC_HOSTNAME, value: "http://sso.localhost:8080" }
+            # … and Keycloak answers the pods at the internal address (tokens, public keys).
+            - { name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true" }
+            - { name: KC_HTTP_ENABLED, value: "true" }
+            - { name: KC_HEALTH_ENABLED, value: "true" }
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: username } }
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: password } }
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 9000 }
+          volumeMounts:
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+          readinessProbe:
+            httpGet: { path: /health/ready, port: 9000 }
+            periodSeconds: 5
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { memory: 1536Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: identity
+spec:
+  selector: { app: keycloak }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+---
+# Public address: the browser's, and the one written in every token (issuer).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sso
+  namespace: identity
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: sso.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: keycloak, port: { number: 8080 } } }
+---
+# Ingress: Traefik (browsers), Open WebUI, the studio's MCP server, storage. Nobody else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-ingress
+  namespace: identity
+spec:
+  podSelector: { matchLabels: { app: keycloak } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: traefik } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: open-webui } }
+          podSelector: { matchLabels: { app: open-webui } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: studio3d } }
+          podSelector: { matchLabels: { app: studio-api } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: storage } }
+      ports: [{ port: 8080, protocol: TCP }]

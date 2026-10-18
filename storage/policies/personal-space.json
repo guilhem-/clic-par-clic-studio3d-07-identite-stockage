@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SeeTheBuckets",
+      "Effect": "Allow",
+      "Action": ["s3:ListAllMyBuckets", "s3:GetBucketLocation"],
+      "Resource": ["arn:aws:s3:::*"]
+    },
+    {
+      "Sid": "OpenTheBucket",
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketVersioning"],
+      "Resource": ["arn:aws:s3:::spaces"]
+    },
+    {
+      "Sid": "SeeTheRoot",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::spaces"],
+      "Condition": { "Null": { "s3:prefix": "true" }, "StringEquals": { "s3:delimiter": "/" } }
+    },
+    {
+      "Sid": "SeeTheFolders",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::spaces"],
+      "Condition": { "StringLike": { "s3:prefix": ["", "personal/", "personal/${aws:userid}/*"] } }
+    },
+    {
+      "Sid": "OwnSpace",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": ["arn:aws:s3:::spaces/personal/${aws:userid}/*"]
+    }
+  ]
+}

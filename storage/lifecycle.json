@@ -1,0 +1,23 @@
+{
+  "Rules": [
+    {
+      "ID": "scenes-7-days",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "scenes/" },
+      "Expiration": { "Days": 7 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    },
+    {
+      "ID": "orphan-markers",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "scenes/" },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    },
+    {
+      "ID": "abandoned-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}

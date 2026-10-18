@@ -1,0 +1,150 @@
+# The organization's object storage (storage team, modules 6 and 7): an S3-compatible service, in its own
+# namespace. Product chosen: RustFS 1.0.1 (Apache 2.0), image pinned by digest.
+# The service is called "s3", not "rustfs": the role's name outlives a product change.
+#   kubectl apply -f k8s.yaml   (after the s3-root, accounts and s3-oidc secrets: see deploy.sh)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: storage
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: s3-data
+  namespace: storage
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: { storage: 5Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+  namespace: storage
+spec:
+  replicas: 1
+  strategy: { type: Recreate }        # a single pod writes to the volume
+  selector:
+    matchLabels: { app: s3 }
+  template:
+    metadata:
+      labels: { app: s3 }
+    spec:
+      securityContext: { fsGroup: 10001 }  # "rustfs" user of the image
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: s3-data }
+      # Module 7: RustFS reads the OIDC discovery only once, at startup. A new pod is only let in by
+      # Keycloak's ingress rule after about a second: wait until Keycloak is reachable first.
+      initContainers:
+        - name: wait-for-identity
+          image: storage-prepare:7
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ENABLED
+              valueFrom: { secretKeyRef: { name: s3-oidc, key: enabled, optional: true } }
+          command: ["python", "-c", "import os, time, urllib.request\nif os.environ.get('ENABLED') == 'on':\n  for _ in range(60):\n    try: urllib.request.urlopen('http://keycloak.identity.svc.cluster.local:8080/realms/example-org/.well-known/openid-configuration', timeout=3); break\n    except Exception: time.sleep(2)"]
+      containers:
+        - name: rustfs
+          # rustfs/rustfs:1.0.1, pinned by its digest (multi-architecture index)
+          image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: s3, containerPort: 9000 }
+            - { name: console, containerPort: 9001 }
+          env:
+            - { name: RUSTFS_VOLUMES, value: /data }
+            - { name: RUSTFS_ADDRESS, value: ":9000" }
+            - { name: RUSTFS_CONSOLE_ENABLE, value: "true" }
+            - { name: RUSTFS_CONSOLE_ADDRESS, value: ":9001" }
+            - { name: RUSTFS_REGION, value: us-east-1 }
+            - name: RUSTFS_ACCESS_KEY       # the root key: it stays in this namespace
+              valueFrom: { secretKeyRef: { name: s3-root, key: key } }
+            - name: RUSTFS_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: s3-root, key: secret } }
+            # Module 7: the organization's identities (Keycloak). Active only if the s3-oidc secret
+            # exists (deploy.sh --plug-identity); without it, nothing changes.
+            - name: RUSTFS_IDENTITY_OPENID_ENABLE
+              valueFrom: { secretKeyRef: { name: s3-oidc, key: enabled, optional: true } }
+            - { name: RUSTFS_IDENTITY_OPENID_CONFIG_URL, value: "http://keycloak.identity.svc.cluster.local:8080/realms/example-org" }
+            - { name: RUSTFS_IDENTITY_OPENID_ISSUER, value: "http://sso.localhost:8080/realms/example-org" }
+            - { name: RUSTFS_IDENTITY_OPENID_CLIENT_ID, value: storage }    # the expected audience of the tokens
+            - name: RUSTFS_IDENTITY_OPENID_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: s3-oidc, key: client-secret, optional: true } }
+            - { name: RUSTFS_IDENTITY_OPENID_SCOPES, value: "openid,profile,email" }
+            - { name: RUSTFS_IDENTITY_OPENID_GROUPS_CLAIM, value: groups }   # Keycloak group = policy name
+            - { name: RUSTFS_IDENTITY_OPENID_DISPLAY_NAME, value: "Example Organization" }
+            - { name: RUSTFS_IDENTITY_OPENID_REDIRECT_URI, value: "http://stockage.localhost:8080/rustfs/admin/v3/oidc/callback/default" }
+            - { name: RUSTFS_IDENTITY_OPENID_REDIRECT_URI_DYNAMIC, value: "off" }
+            - { name: RUSTFS_BROWSER_REDIRECT_URL, value: "http://stockage.localhost:8080" }
+            # Private address: by default, RustFS refuses outbound calls to the internal network.
+            - { name: RUSTFS_OUTBOUND_ALLOW_ORIGINS, value: "http://keycloak.identity.svc.cluster.local:8080" }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /health, port: 9000 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3                            # the role's name, not the product's
+  namespace: storage
+spec:
+  selector: { app: s3 }
+  ports:
+    - { name: s3, port: 9000, targetPort: 9000 }
+    - { name: console, port: 9001, targetPort: 9001 }
+---
+# Ingress: the studio's namespace (S3 port), Traefik (publication), the prepare Job. Nobody else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: s3-ingress
+  namespace: storage
+spec:
+  podSelector: { matchLabels: { app: s3 } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: studio3d } } }]
+      ports: [{ port: 9000, protocol: TCP }]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: traefik } }
+      ports: [{ port: 9000, protocol: TCP }, { port: 9001, protocol: TCP }]
+    - from: [{ podSelector: { matchLabels: { app: prepare } } }]
+      ports: [{ port: 9000, protocol: TCP }]
+---
+# Publication: download with a signed link, nothing else (no write, no administration).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: s3-public
+  namespace: storage
+spec:
+  entryPoints: [web]
+  routes:
+    - match: Host(`s3.localhost`) && (Method(`GET`) || Method(`HEAD`))
+      kind: Rule
+      services: [{ name: s3, port: 9000 }]
+---
+# RustFS console: published for the demo (in production, it would stay internal).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: console
+  namespace: storage
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: stockage.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: s3, port: { number: 9001 } } }

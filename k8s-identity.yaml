@@ -1,0 +1,15 @@
+# Module 7: the MCP server (and only it, not the workers) may reach Keycloak: public keys to verify the
+# tokens, token exchange. Additive to studio-to-redis-only (k8s-scale.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: studio-to-identity
+  namespace: studio3d
+spec:
+  podSelector: { matchLabels: { app: studio-api } }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: identity } }
+          podSelector: { matchLabels: { app: keycloak } }
+      ports: [{ port: 8080, protocol: TCP }]

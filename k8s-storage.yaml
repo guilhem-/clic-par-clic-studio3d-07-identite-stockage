@@ -1,0 +1,16 @@
+# Module 6: the studio may reach the s3 service of the other namespace, and nothing else new.
+# Additive to studio-to-redis-only (k8s-scale.yaml).
+#   MCP server: temporary credentials (STS); workers: scene upload.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: studio-to-storage
+  namespace: studio3d
+spec:
+  podSelector: { matchLabels: { role: studio } }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: storage } }
+          podSelector: { matchLabels: { app: s3 } }
+      ports: [{ port: 9000, protocol: TCP }]

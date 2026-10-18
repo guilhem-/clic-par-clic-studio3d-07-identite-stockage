@@ -1,0 +1,10 @@
+{
+  "type": "mcp",
+  "url": "http://studio.studio3d.svc.cluster.local:8000/mcp",
+  "path": "",
+  "auth_type": "system_oauth",
+  "key": "",
+  "headers": {},
+  "config": { "enable": true },
+  "info": { "id": "studio", "name": "Studio 3D", "description": "" }
+}

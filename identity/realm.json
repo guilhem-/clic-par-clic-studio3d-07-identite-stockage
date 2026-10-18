@@ -1,0 +1,106 @@
+{
+  "realm": "example-org",
+  "displayName": "Example Organization",
+  "enabled": true,
+  "sslRequired": "none",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["en", "fr", "de"],
+  "defaultLocale": "en",
+  "accessTokenLifespan": 600,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 43200,
+  "groups": [
+    { "name": "personal-space" }
+  ],
+  "users": [
+    { "username": "camille", "email": "camille@example.com", "emailVerified": true, "enabled": true,
+      "firstName": "Camille", "lastName": "Example", "groups": ["personal-space"],
+      "credentials": [{ "type": "password", "value": "__PASSWORD_CAMILLE__", "temporary": false }] },
+    { "username": "lukas", "email": "lukas@example.com", "emailVerified": true, "enabled": true,
+      "firstName": "Lukas", "lastName": "Example", "groups": ["personal-space"],
+      "credentials": [{ "type": "password", "value": "__PASSWORD_LUKAS__", "temporary": false }] },
+    { "username": "oliver", "email": "oliver@example.com", "emailVerified": true, "enabled": true,
+      "firstName": "Oliver", "lastName": "Example", "groups": ["personal-space"],
+      "credentials": [{ "type": "password", "value": "__PASSWORD_OLIVER__", "temporary": false }] }
+  ],
+  "clients": [
+    {
+      "clientId": "open-webui",
+      "name": "Open WebUI",
+      "publicClient": false,
+      "secret": "__SECRET_OPEN_WEBUI__",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://127.0.0.1:8080/oauth/oidc/callback"],
+      "webOrigins": ["http://127.0.0.1:8080"],
+      "attributes": { "post.logout.redirect.uris": "http://127.0.0.1:8080/*" },
+      "protocolMappers": [
+        { "name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
+          "config": { "claim.name": "groups", "full.path": "false", "access.token.claim": "true", "id.token.claim": "true", "userinfo.token.claim": "true" } },
+        { "name": "audience-studio3d", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "studio3d", "access.token.claim": "true", "id.token.claim": "false" } }
+      ]
+    },
+    {
+      "clientId": "studio3d",
+      "name": "3D Studio",
+      "publicClient": false,
+      "secret": "__SECRET_STUDIO3D__",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": { "standard.token.exchange.enabled": "true", "access.token.lifespan": "300" },
+      "protocolMappers": [
+        { "name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
+          "config": { "claim.name": "groups", "full.path": "false", "access.token.claim": "true", "id.token.claim": "true", "userinfo.token.claim": "true" } },
+        { "name": "audience-storage", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "storage", "access.token.claim": "true", "id.token.claim": "false" } }
+      ]
+    },
+    {
+      "clientId": "storage",
+      "name": "S3 storage",
+      "publicClient": false,
+      "secret": "__SECRET_STORAGE__",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://stockage.localhost:8080/rustfs/admin/v3/oidc/callback/default"],
+      "webOrigins": ["http://stockage.localhost:8080"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        { "name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
+          "config": { "claim.name": "groups", "full.path": "false", "access.token.claim": "true", "id.token.claim": "true", "userinfo.token.claim": "true" } }
+      ]
+    },
+    {
+      "clientId": "test",
+      "name": "Tests (recording realm only)",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        { "name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
+          "config": { "claim.name": "groups", "full.path": "false", "access.token.claim": "true", "id.token.claim": "true", "userinfo.token.claim": "true" } },
+        { "name": "audience-storage", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "storage", "access.token.claim": "true", "id.token.claim": "false" } }
+      ]
+    },
+    {
+      "clientId": "test-studio",
+      "name": "Studio tests (recording realm only)",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        { "name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
+          "config": { "claim.name": "groups", "full.path": "false", "access.token.claim": "true", "id.token.claim": "true", "userinfo.token.claim": "true" } },
+        { "name": "audience-studio3d", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "studio3d", "access.token.claim": "true", "id.token.claim": "false" } }
+      ]
+    }
+  ]
+}

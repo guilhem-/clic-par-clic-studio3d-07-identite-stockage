@@ -1,0 +1,279 @@
+# 3D studio at scale, module 7 state: shared Redis queue, MCP server in two copies, Blender workers from
+# 0 to 4 driven by KEDA, asset library (module 5), scene storage (module 6), organization identity and a
+# worker pod with two containers (module 7).
+#   kubectl apply -f k8s-scale.yaml   (after the "studio" secret: keys token and redis; see README.md)
+# Optional secrets: "storage" (module 6 keys, MCP server only), "identity" (Keycloak client secret of the
+# studio, MCP server only). Without them, the studio behaves as in the previous modules.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: studio3d
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: studio3d
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          command: ["sh", "-c", "exec redis-server --requirepass \"$PASSWORD\" --save '' --appendonly no"]
+          env:
+            - name: PASSWORD
+              valueFrom: { secretKeyRef: { name: studio, key: redis } }
+          ports: [{ containerPort: 6379 }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: studio3d
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: studio-api
+  namespace: studio3d
+spec:
+  replicas: 2                        # stateless MCP server: any copy answers
+  selector:
+    matchLabels: { app: studio-api }
+  template:
+    metadata:
+      labels: { app: studio-api, role: studio }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      volumes:
+        - name: assets                     # the library: an image, mounted as a folder
+          image:
+            reference: studio3d-assets:1
+            pullPolicy: IfNotPresent
+      containers:
+        - name: api
+          image: studio3d-en:7
+          imagePullPolicy: IfNotPresent
+          command: ["python", "api.py"]
+          ports: [{ containerPort: 8000 }]
+          env:
+            - name: STUDIO_TOKEN
+              valueFrom: { secretKeyRef: { name: studio, key: token } }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: studio, key: redis } }
+            - name: REDIS_HOST
+              value: redis
+            - name: STUDIO_PUBLIC_URL
+              value: http://studio.localhost:8080
+            - name: MARKING_VISIBLE_DEFAULT
+              value: "no"
+            - name: MARKING_VISIBLE_ENFORCED
+              value: "no"
+            # Scene storage (module 6): the long-term keys, here only.
+            - name: S3_INTERNAL
+              value: http://s3.storage.svc.cluster.local:9000
+            - name: S3_PUBLIC
+              value: http://s3.localhost:8080
+            - name: S3_UPLOAD_KEY
+              valueFrom: { secretKeyRef: { name: storage, key: upload-key, optional: true } }
+            - name: S3_UPLOAD_SECRET
+              valueFrom: { secretKeyRef: { name: storage, key: upload-secret, optional: true } }
+            - name: S3_LINKS_KEY
+              valueFrom: { secretKeyRef: { name: storage, key: links-key, optional: true } }
+            - name: S3_LINKS_SECRET
+              valueFrom: { secretKeyRef: { name: storage, key: links-secret, optional: true } }
+            # Organization identity (module 7): the public issuer, the internal address, the client secret.
+            - name: OIDC_ISSUER
+              value: http://sso.localhost:8080/realms/example-org
+            - name: OIDC_INTERNAL
+              value: http://keycloak.identity.svc.cluster.local:8080/realms/example-org
+            - name: OIDC_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: identity, key: client-secret, optional: true } }
+          volumeMounts:
+            - { name: assets, mountPath: /assets, readOnly: true }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: studio
+  namespace: studio3d
+spec:
+  selector: { app: studio-api }
+  ports: [{ port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: studio-worker
+  namespace: studio3d
+spec:
+  replicas: 0                        # driven by KEDA (ScaledObject below)
+  selector:
+    matchLabels: { app: studio-worker }
+  template:
+    metadata:
+      labels: { app: studio-worker, role: studio }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9101"
+    spec:
+      terminationGracePeriodSeconds: 120   # when stopping, the worker finishes its current render
+      automountServiceAccountToken: false  # no Kubernetes token in the pod
+      securityContext: { fsGroup: 10001 }  # group shared by both containers, for the work folder
+      volumes:
+        - name: assets
+          image:
+            reference: studio3d-assets:1
+            pullPolicy: IfNotPresent
+        - name: work                       # the only link between the two containers
+          emptyDir: {}
+        - name: tmp                        # Blender writes its temporary files here
+          emptyDir: {}
+      containers:
+        - name: worker                     # the agent: Redis queue, marking, scene upload
+          image: studio3d-en:7
+          imagePullPolicy: IfNotPresent
+          command: ["python", "worker.py"]
+          ports: [{ name: metrics, containerPort: 9101 }]
+          env:
+            - name: STUDIO_TOKEN
+              valueFrom: { secretKeyRef: { name: studio, key: token } }
+            - name: REDIS_PASSWORD         # it knows the Redis password…
+              valueFrom: { secretKeyRef: { name: studio, key: redis } }
+            - name: REDIS_HOST
+              value: redis
+            - name: STUDIO_PUBLIC_URL
+              value: http://studio.localhost:8080
+            - name: ASSETS
+              value: /assets
+            - name: S3_INTERNAL            # module 6: scene upload, no key here
+              value: http://s3.storage.svc.cluster.local:9000
+            - name: WORK_DIR               # module 7: Blender runs in the neighboring container
+              value: /work
+          volumeMounts:
+            - { name: assets, mountPath: /assets, readOnly: true }
+            - { name: work, mountPath: /work }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+        - name: blender                    # … this one runs the model's code, without any secret
+          image: studio3d-en:7
+          imagePullPolicy: IfNotPresent
+          command: ["python", "launcher.py"]
+          env:
+            - name: ASSETS                 # read by Blender (render.py), read-only
+              value: /assets
+            - name: WORK_DIR
+              value: /work
+          securityContext:
+            runAsUser: 10001               # another user than the agent
+            runAsGroup: 10001
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: assets, mountPath: /assets, readOnly: true }
+            - { name: work, mountPath: /work }
+            - { name: tmp, mountPath: /tmp }
+          resources:
+            requests: { cpu: "2", memory: 2Gi }
+            limits: { cpu: "4", memory: 4Gi }
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: redis
+  namespace: studio3d
+spec:
+  secretTargetRef:
+    - { parameter: password, name: studio, key: redis }
+---
+# One worker per request waiting or running (up to 4); zero workers when everything is done.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: studio-worker
+  namespace: studio3d
+spec:
+  scaleTargetRef: { name: studio-worker }
+  minReplicaCount: 0
+  maxReplicaCount: 4
+  pollingInterval: 5
+  cooldownPeriod: 30
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown: { stabilizationWindowSeconds: 20 }
+  triggers:
+    - type: redis
+      authenticationRef: { name: redis }
+      metadata: { address: redis.studio3d.svc.cluster.local:6379, listName: "studio:load", listLength: "1" }
+---
+# Only the renders (signed links) and the library thumbnails are published outside the cluster; /mcp stays internal.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: studio
+  namespace: studio3d
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: studio.localhost
+      http:
+        paths:
+          - path: /r/
+            pathType: Prefix
+            backend: { service: { name: studio, port: { number: 8000 } } }
+          - path: /a/
+            pathType: Prefix
+            backend: { service: { name: studio, port: { number: 8000 } } }
+---
+# Server and workers: no egress, except Redis (and name resolution to find it).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: studio-to-redis-only
+  namespace: studio3d
+spec:
+  podSelector: { matchLabels: { role: studio } }
+  policyTypes: [Egress]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: redis } } }]
+      ports: [{ port: 6379, protocol: TCP }]
+    - to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }, podSelector: { matchLabels: { k8s-app: kube-dns } } }]
+      ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+---
+# Redis: reachable by the studio and by KEDA (which reads the queue length), nobody else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-studio-and-keda
+  namespace: studio3d
+spec:
+  podSelector: { matchLabels: { app: redis } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { role: studio } }
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: keda } }
+      ports: [{ port: 6379, protocol: TCP }]
