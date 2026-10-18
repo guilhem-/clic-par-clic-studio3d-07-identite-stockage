@@ -40,7 +40,7 @@ MARKING_DEFAULT = _yes("MARKING_VISIBLE_DEFAULT")
 MARKING_ENFORCED = _yes("MARKING_VISIBLE_ENFORCED")
 
 # Asset library (module 5): an image mounted read-only on this folder. Its catalog.json is built by the
-# module 5 repository and keeps its original keys (modeles, environnements, nom, fichier…).
+# module 5 repository (models, environments; name, file, thumbnail, tags, source of each asset).
 ASSETS = Path(os.environ.get("ASSETS", "/assets"))
 LANGUAGE = os.environ.get("STUDIO_LANGUAGE", "EN")  # language of the labels returned to the model
 
@@ -77,18 +77,18 @@ SPACE_LABEL = {"FR": "dans votre espace personnel", "EN": "in your personal spac
 @lru_cache(maxsize=1)
 def catalog() -> dict:
     """Catalog of the mounted library (read once: a pod keeps the version mounted when it started)."""
-    sheet = ASSETS / "catalogue.json"
+    sheet = ASSETS / "catalog.json"
     if not sheet.exists():
-        return {"version": None, "modeles": {}, "environnements": {}}
+        return {"version": None, "models": {}, "environments": {}}
     return json.loads(sheet.read_text(encoding="utf-8"))
 
 
 def asset_trace(names) -> list[dict]:
     """What the studio keeps about each asset used: name, source, license (catalog names only)."""
     cat = catalog()
-    sheets = {**cat.get("modeles", {}), **cat.get("environnements", {})}
+    sheets = {**cat.get("models", {}), **cat.get("environments", {})}
     return [{"name": n, "source": f"Poly Haven {sheets[n]['source']['polyhaven']}" if sheets[n]["source"].get("polyhaven")
-             else sheets[n]["source"].get("origine", "organization"), "license": sheets[n]["source"].get("licence", "")}
+             else sheets[n]["source"].get("origin", "organization"), "license": sheets[n]["source"].get("license", "")}
             for n in names if n in sheets]
 
 

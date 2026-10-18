@@ -57,8 +57,8 @@ def frame(cam, objects):
 # ---------------------------------------------------------------- Asset library (module 5)
 
 ASSETS = Path(os.environ.get("ASSETS", "/assets"))
-_sheet = ASSETS / "catalogue.json"  # built by the module 5 repository (original keys kept)
-CATALOG = json.loads(_sheet.read_text(encoding="utf-8")) if _sheet.exists() else {"modeles": {}, "environnements": {}}
+_sheet = ASSETS / "catalog.json"  # built by the module 5 repository
+CATALOG = json.loads(_sheet.read_text(encoding="utf-8")) if _sheet.exists() else {"models": {}, "environments": {}}
 ASSETS_USED: list[str] = []  # the trace: stored with the request, then in the marking
 _loaded_models: dict = {}
 _environment = False
@@ -66,11 +66,11 @@ _environment = False
 
 def load_asset(name: str, position=(0, 0, 0), rotation_z: float = 0.0, scale: float = 1.0, decor: bool = False):
     """Adds to the scene a copy of a library object, placed on the floor; returns its root object."""
-    sheet = CATALOG["modeles"].get(name)
+    sheet = CATALOG["models"].get(name)
     if sheet is None:  # the message goes back to the model, which fixes and resubmits
-        raise ValueError(f"unknown asset: {name!r}. Valid names: {', '.join(sorted(CATALOG['modeles'])) or 'none'}")
+        raise ValueError(f"unknown asset: {name!r}. Valid names: {', '.join(sorted(CATALOG['models'])) or 'none'}")
     if name not in _loaded_models:  # the file is read once, even for ten chairs
-        path = ASSETS / sheet["fichier"]  # built by the studio, never by the model
+        path = ASSETS / sheet["file"]  # built by the studio, never by the model
         # Appended (link=False), not linked: a copy the model may move and recolor.
         with bpy.data.libraries.load(str(path), link=False, assets_only=True) as (source, target):
             target.collections = [sheet["collection"]]
@@ -96,9 +96,9 @@ def load_asset(name: str, position=(0, 0, 0), rotation_z: float = 0.0, scale: fl
 def environment(name: str, strength: float = 1.0, rotation_z: float = 0.0, background_visible: bool = True):
     """Lights the scene with an HDRI image from the library: a panoramic photo of a real place."""
     global _environment
-    sheet = CATALOG["environnements"].get(name)
+    sheet = CATALOG["environments"].get(name)
     if sheet is None:
-        raise ValueError(f"unknown environment: {name!r}. Valid names: {', '.join(sorted(CATALOG['environnements'])) or 'none'}")
+        raise ValueError(f"unknown environment: {name!r}. Valid names: {', '.join(sorted(CATALOG['environments'])) or 'none'}")
     world = bpy.data.worlds.new(f"World {name}")
     bpy.context.scene.world = world
     world.use_nodes = True
@@ -107,7 +107,7 @@ def environment(name: str, strength: float = 1.0, rotation_z: float = 0.0, backg
     coord, rotation = tree.nodes.new("ShaderNodeTexCoord"), tree.nodes.new("ShaderNodeMapping")
     texture, background = tree.nodes.new("ShaderNodeTexEnvironment"), tree.nodes.new("ShaderNodeBackground")
     output = tree.nodes.new("ShaderNodeOutputWorld")
-    texture.image = bpy.data.images.load(str(ASSETS / sheet["fichier"]), check_existing=True)
+    texture.image = bpy.data.images.load(str(ASSETS / sheet["file"]), check_existing=True)
     rotation.inputs["Rotation"].default_value[2] = rotation_z
     background.inputs["Strength"].default_value = strength
     tree.links.new(coord.outputs["Generated"], rotation.inputs["Vector"])

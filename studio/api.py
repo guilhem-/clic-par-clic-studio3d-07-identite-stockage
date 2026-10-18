@@ -214,15 +214,15 @@ def list_assets(ctx: Context, search: str = "", kind: str = "") -> list[dict]:
     _user(ctx)  # same check as the other tools
     word = search.strip().lower()
     results = []
-    for family, sheets in (("model", c.catalog()["modeles"]), ("environment", c.catalog()["environnements"])):
+    for family, sheets in (("model", c.catalog()["models"]), ("environment", c.catalog()["environments"])):
         if kind and not family.startswith(kind.strip().lower()[:5]):
             continue
         for name, f in sheets.items():
             # Search in the names, in three languages, and in the tags.
-            text = " ".join([name, *f["nom"].values(), *f.get("etiquettes", [])]).lower()
+            text = " ".join([name, *f["name"].values(), *f.get("tags", [])]).lower()
             if word and word not in text:
                 continue
-            label = f["nom"].get(c.LANGUAGE, f["nom"]["EN"])
+            label = f["name"].get(c.LANGUAGE, f["name"]["EN"])
             results.append({
                 "name": name,                                # the name to write in the code
                 "kind": family,
@@ -230,7 +230,7 @@ def list_assets(ctx: Context, search: str = "", kind: str = "") -> list[dict]:
                 "dimensions_m": f.get("dimensions_m"),       # to place objects without guessing
                 "thumbnail_markdown": f"![{label}]({c.PUBLIC}/a/{name}.jpg)",
                 "example": f'load_asset("{name}")' if family == "model" else f'environment("{name}")',
-                "source": "Poly Haven, CC0" if f["source"].get("polyhaven") else f["source"].get("licence", ""),
+                "source": "Poly Haven, CC0" if f["source"].get("polyhaven") else f["source"].get("license", ""),
             })
     return results
 
@@ -277,10 +277,10 @@ async def thumbnail(request: Request) -> Response:
     """Library thumbnails: public, unsigned (royalty-free assets, no user data)."""
     name, _, extension = request.path_params["file"].rpartition(".")
     cat = c.catalog()
-    sheet = cat["modeles"].get(name) or cat["environnements"].get(name)  # name looked up, never concatenated as is
+    sheet = cat["models"].get(name) or cat["environments"].get(name)  # name looked up, never concatenated as is
     if extension != "jpg" or sheet is None:
         return Response(status_code=404)
-    return FileResponse(c.ASSETS / sheet["vignette"], media_type="image/jpeg",
+    return FileResponse(c.ASSETS / sheet["thumbnail"], media_type="image/jpeg",
                         headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"})
 
 

@@ -63,8 +63,8 @@ it. It has no key for the `spaces` bucket, and its Keycloak client secret yields
 ## Prerequisites
 
 - The studio of **module 5** for the asset library image `studio3d-assets:1` (repository
-  [`clic-par-clic-studio3d-05-assets`](https://github.com/guilhem-/clic-par-clic-studio3d-05-assets);
-  its `catalogue.json` keeps its original keys), KEDA 2.21.0, and the storage of **module 6**
+  [`clic-par-clic-studio3d-05-assets`](https://github.com/guilhem-/clic-par-clic-studio3d-05-assets),
+  which builds it with its `catalog.json`), KEDA 2.21.0, and the storage of **module 6**
   (repository [`clic-par-clic-studio3d-06-stockage-s3`](https://github.com/guilhem-/clic-par-clic-studio3d-06-stockage-s3)) —
   this repository contains the storage again, with its module 7 additions.
 - A **k3d** cluster (k3s 1.35, Traefik published on port 8080: the addresses `sso.localhost:8080`,
