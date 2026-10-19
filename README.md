@@ -92,6 +92,7 @@ it. It has no key for the `spaces` bucket, and its Keycloak client secret yields
    ./storage/deploy.sh --keys           # module 6 keys handed to the studio ("storage" secret)
    ./storage/deploy.sh --plug-identity  # RustFS verifies Keycloak tokens
    ./storage/deploy.sh --identity-test  # real tokens: each "ok" line is an expected result
+   ./storage/deploy.sh --identity-test oliver lukas   # the same test with two other users of the realm
    ```
 
 3. **The studio**:

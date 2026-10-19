@@ -4,7 +4,7 @@
 #   ./storage/deploy.sh                    deploys and prepares (idempotent)
 #   ./storage/deploy.sh --keys             hands the upload and links keys to the studio ("storage" secret)
 #   ./storage/deploy.sh --plug-identity    RustFS verifies Keycloak tokens (s3-oidc secret, restart)
-#   ./storage/deploy.sh --identity-test    real tokens of two users (Camille, Lukas): expected refusals
+#   ./storage/deploy.sh --identity-test [a b]   real tokens of two users (default: camille lukas): expected refusals
 #   ./storage/deploy.sh --empty            empties scenes/ and personal/ (all versions)
 # Secrets in storage/.env (created on first run, never committed). Requires docker, kubectl, k3d (or a
 # registry: replace "k3d image import" with a docker push), openssl; identity/.env for --plug-identity.
@@ -41,9 +41,10 @@ case "${1:-}" in
     kubectl rollout status deployment/s3 -n storage --timeout=180s
     exit ;;
   --identity-test)
+    a=${2:-camille}; b=${3:-lukas}   # two users of the realm (usernames)
     kubectl create secret generic test-tokens -n storage \
-      --from-literal=a="$(../identity/deploy.sh --token camille)" --from-literal=b="$(../identity/deploy.sh --token lukas)" \
-      --from-literal=name-a=Camille --from-literal=name-b=Lukas --dry-run=client -o yaml | kubectl apply -f -
+      --from-literal=a="$(../identity/deploy.sh --token "$a")" --from-literal=b="$(../identity/deploy.sh --token "$b")" \
+      --from-literal=name-a="${a^}" --from-literal=name-b="${b^}" --dry-run=client -o yaml | kubectl apply -f -
     job --identity-test
     kubectl delete secret test-tokens -n storage
     exit ;;
